@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+body {
+  background: #0B1220;
+  color: #E5EAF3;
+}
+
+::selection {
+  background: #2DD4BF;
+  color: #0B1220;
+}
