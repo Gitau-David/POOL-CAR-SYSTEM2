@@ -1,8 +1,3 @@
--- Pool Car Request & Approve System — Supabase/Postgres schema
--- Run this once in Supabase: Project → SQL Editor → New query → paste → Run.
-
--- Needed for digest(), used below to hash PINs directly in SQL so you never
--- have to run a separate Python/Node command to add a new admin.
 create extension if not exists pgcrypto;
 
 create table if not exists users (
@@ -85,16 +80,29 @@ alter table requisitions add column if not exists cancelled_at timestamptz;
 alter table requisitions add column if not exists submitted_by text;
 update requisitions set submitted_by = requester where submitted_by is null;
 
--- Same status logic as the app's computeStatus() in lib/types.ts — kept in
--- sync by hand since Postgres can't express it as a generated column.
--- Cancelled takes priority over Denied (a requester can only cancel their
--- own still-pending request, so the two never really overlap, but the
--- order matters if they ever do).
+--Same status logic as the app's computeStatus() in lib/types.ts — kept
+-- in sync by hand since Postgres can't express it as a generated column.
+
+-- The view depends on the older function signature, so remove the view first.
+drop view if exists requisitions_with_status;
+
+-- Remove old function signatures, including the previous four-argument version.
 drop function if exists requisition_status(bigint, date, date);
 drop function if exists requisition_status(bigint, date, date, timestamptz);
-create or replace function requisition_status(
-  p_vehicle_id bigint, p_start date, p_end date,
-  p_denied_at timestamptz default null, p_cancelled_at timestamptz default null
+drop function if exists requisition_status(
+  bigint,
+  date,
+  date,
+  timestamptz,
+  timestamptz
+);
+
+create function requisition_status(
+  p_vehicle_id bigint,
+  p_start date,
+  p_end date,
+  p_denied_at timestamptz default null,
+  p_cancelled_at timestamptz default null
 )
 returns text
 language sql
@@ -110,13 +118,18 @@ as $$
   end;
 $$;
 
--- Convenience view for browsing in the Supabase SQL editor / Table editor —
--- the app itself queries the plain `requisitions` table and computes status
--- in TypeScript, so this view is optional, not load-bearing.
-create or replace view requisitions_with_status as
-select r.*, requisition_status(r.vehicle_id, r.start_date, r.end_date, r.denied_at, r.cancelled_at) as status
+-- Recreate the view against the new five-argument function.
+create view requisitions_with_status as
+select
+  r.*,
+  requisition_status(
+    r.vehicle_id,
+    r.start_date,
+    r.end_date,
+    r.denied_at,
+    r.cancelled_at
+  ) as status
 from requisitions r;
-
 -- Append-only audit trail — every submit / allocate / fleet change lands here
 create table if not exists activity_log (
   id             bigint generated always as identity primary key,
@@ -416,22 +429,4 @@ $$;
 -- If you previously ran an older version of this script that seeded demo
 -- vehicles/drivers (UBD 094S, UA 991AB, UBS 840H, Ivan Mugisha, Samuel
 -- Okello, Grace Namuli), this removes them — but only if none of them are
--- tied to a real requisition, so it won't silently delete history.
-delete from vehicles
-where reg_no in ('UBD 094S', 'UA 991AB', 'UBS 840H')
-  and id not in (select vehicle_id from requisitions where vehicle_id is not null);
-
-delete from drivers
-where name in ('Ivan Mugisha', 'Samuel Okello', 'Grace Namuli')
-  and id not in (select driver_id from requisitions where driver_id is not null);
-
--- Demo admin accounts, added via the function above so PINs never need to
--- be hashed by hand. Log in with the exact name below + its PIN.
-select add_admin('Fleet Manager', '4821');
-select add_admin('Operations Lead', '7350');
-select add_admin('IT Admin', '9042');
-
--- To add a real admin later, just run (in the Supabase SQL editor):
---   select add_admin('Their Name', 'their-chosen-pin');
--- Running it again for the same name updates that admin's PIN instead of
--- creating a duplicate.
+-- tied to a real requisition, so it won't silently
