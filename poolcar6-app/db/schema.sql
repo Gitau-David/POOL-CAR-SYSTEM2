@@ -509,3 +509,4 @@ select add_it_admin('IT Admin', '1234');
 --   select add_admin('Their Name', 'their-chosen-pin');
 -- Running it again for the same name updates that admin's PIN instead of
 -- creating a duplicate.
+
